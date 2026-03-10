@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { isAuthenticated } from '../composables/useAuth'
 
 const defaultTitle = 'Agenda de Contatos'
 
@@ -7,19 +8,19 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/chat',
+      redirect: () => (isAuthenticated() ? { name: 'chat' } : { name: 'login' }),
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
-      meta: { title: 'Login' },
+      meta: { title: 'Login', guestOnly: true },
     },
     {
       path: '/chat',
       name: 'chat',
       component: () => import('../views/ChatView.vue'),
-      meta: { title: 'Chat' },
+      meta: { title: 'Chat', requiresAuth: true },
     },
     {
       path: '/:pathMatch(.*)*',
@@ -30,9 +31,21 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to) => {
   document.title = to.meta.title ? `${to.meta.title} - ${defaultTitle}` : defaultTitle
-  next()
+
+  if (to.meta.requiresAuth && !isAuthenticated()) {
+    return {
+      name: 'login',
+      query: {
+        redirect: to.fullPath,
+      },
+    }
+  }
+
+  if (to.meta.guestOnly && isAuthenticated()) {
+    return { name: 'chat' }
+  }
 })
 
 export default router
