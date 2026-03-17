@@ -1,65 +1,216 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { io } from 'socket.io-client'
+import { buildBackendUrl } from '../config/backend'
 import { logout, useAuth } from '../composables/useAuth'
 
 const router = useRouter()
-const { user } = useAuth()
+const { token, user } = useAuth()
 
 const draft = ref('')
+const errorMessage = ref('')
+const connectionLabel = ref('Conectando...')
+const messages = ref([])
+const participants = ref([])
+const messagesContainer = ref(null)
 
-const messages = ref([
-  {
-    id: 1,
-    author: 'Marina',
-    body: 'Atualizei o status do cluster e a autenticação já está respondendo.',
-    time: '08:42',
-    own: false,
-  },
-  {
-    id: 2,
-    author: 'Você',
-    body: 'Perfeito. Vou validar o fluxo do roteamento e fechar a interface.',
-    time: '08:44',
-    own: true,
-  },
-  {
-    id: 3,
-    author: 'Suporte',
-    body: 'Se a rota falhar, a tela 404 já está pronta para orientar o retorno.',
-    time: '08:45',
-    own: false,
-  },
-])
-
-const participants = ['Marina', 'Você', 'Suporte']
 const messageCount = computed(() => messages.value.length)
+const isConnected = computed(() => connectionLabel.value === 'Conectado')
 
-function signOut() {
+let socket
+
+function formatTime(value) {
+  if (!value) {
+    return new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date())
+  }
+
+  if (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) {
+    return value
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date())
+  }
+
+  return new Intl.DateTimeFormat('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function resolveDisplayName(candidate) {
+  if (!candidate) {
+    return 'Sistema'
+  }
+
+  if (typeof candidate === 'string') {
+    return candidate
+  }
+
+  return candidate.name ?? candidate.email ?? candidate.username ?? 'Sistema'
+}
+
+function isOwnMessage(message, authorName) {
+  const currentUser = user.value
+
+  if (!currentUser) {
+    return false
+  }
+
+  const knownNames = [currentUser.name, currentUser.email].filter(Boolean)
+
+  return (
+    message?.own === true ||
+    message?.isOwn === true ||
+    knownNames.includes(authorName) ||
+    knownNames.includes(resolveDisplayName(message?.user)) ||
+    knownNames.includes(resolveDisplayName(message?.author))
+  )
+}
+
+function normalizeMessage(message, index = 0) {
+  if (typeof message === 'string') {
+    return {
+      id: `message-${Date.now()}-${index}`,
+      author: 'Sistema',
+      body: message,
+      time: formatTime(),
+      own: false,
+    }
+  }
+
+  const authorName = resolveDisplayName(
+    message?.user ??
+      message?.author ??
+      message?.sender ??
+      message?.username ??
+      message?.email,
+  )
+
+  return {
+    id: message?.id ?? message?._id ?? `message-${Date.now()}-${index}`,
+    author: authorName,
+    body: message?.text ?? message?.body ?? message?.message ?? '',
+    time: formatTime(message?.createdAt ?? message?.timestamp ?? message?.time),
+    own: isOwnMessage(message, authorName),
+  }
+}
+
+function normalizeUsers(payload) {
+  const users = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.users)
+      ? payload.users
+      : []
+
+  return users.map((entry, index) => ({
+    id: entry?.id ?? entry?._id ?? entry?.email ?? entry?.name ?? `user-${index}`,
+    name: resolveDisplayName(entry),
+  }))
+}
+
+async function scrollMessagesToBottom() {
+  await nextTick()
+
+  if (messagesContainer.value) {
+    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+}
+
+function disconnectSocket() {
+  if (socket) {
+    socket.disconnect()
+    socket = undefined
+  }
+}
+
+function redirectToLogin() {
   logout()
   router.push({ name: 'login' })
 }
 
-function sendMessage() {
-  const body = draft.value.trim()
+function signOut() {
+  disconnectSocket()
+  redirectToLogin()
+}
 
-  if (!body) {
+function sendMessage() {
+  const text = draft.value.trim()
+
+  if (!text || !socket) {
     return
   }
 
-  messages.value.push({
-    id: Date.now(),
-    author: 'Você',
-    body,
-    time: new Intl.DateTimeFormat('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date()),
-    own: true,
-  })
-
+  socket.emit('chat:message:send', { text })
   draft.value = ''
 }
+
+watch(
+  messages,
+  () => {
+    scrollMessagesToBottom()
+  },
+  { deep: true },
+)
+
+onMounted(() => {
+  if (!token.value) {
+    redirectToLogin()
+    return
+  }
+
+  socket = io(buildBackendUrl(), {
+    auth: {
+      token: token.value,
+    },
+  })
+
+  socket.on('connect', () => {
+    connectionLabel.value = 'Conectado'
+    errorMessage.value = ''
+  })
+
+  socket.on('disconnect', () => {
+    connectionLabel.value = 'Desconectado'
+  })
+
+  socket.on('connect_error', (error) => {
+    connectionLabel.value = 'Falha na conexao'
+    errorMessage.value = error.message || 'Nao foi possivel conectar ao chat.'
+  })
+
+  socket.on('chat:history', (payload) => {
+    const history = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.messages)
+        ? payload.messages
+        : []
+
+    messages.value = history.map((message, index) => normalizeMessage(message, index))
+  })
+
+  socket.on('chat:users', (payload) => {    
+    participants.value = normalizeUsers(payload)
+  })
+
+  socket.on('chat:message', (payload) => {
+    messages.value.push(normalizeMessage(payload, messages.value.length))
+  })
+
+})
+
+onBeforeUnmount(() => {
+  disconnectSocket()
+})
 </script>
 
 <template>
@@ -72,14 +223,19 @@ function sendMessage() {
         </div>
 
         <div class="chat__identity">
-          <span>{{ user?.email }}</span>
+          <div class="chat__identity-copy">
+            <span>{{ user?.email }}</span>
+            <strong>{{ connectionLabel }}</strong>
+          </div>
           <button type="button" class="chat__logout" @click="signOut">Sair</button>
         </div>
+
+        <p v-if="errorMessage" class="chat__error">{{ errorMessage }}</p>
 
         <div class="chat__stats">
           <article>
             <strong>{{ participants.length }}</strong>
-            <span>Pessoas</span>
+            <span>Pessoas online</span>
           </article>
           <article>
             <strong>{{ messageCount }}</strong>
@@ -88,15 +244,17 @@ function sendMessage() {
         </div>
 
         <ul class="chat__participants">
-          <li v-for="participant in participants" :key="participant">
+          <li v-for="participant in participants" :key="participant.id">
             <span class="dot" />
-            {{ participant }}
+            {{ participant.name }}
           </li>
         </ul>
       </aside>
 
       <section class="chat__panel">
-        <div class="chat__messages" role="log" aria-live="polite">
+        <div ref="messagesContainer" class="chat__messages" role="log" aria-live="polite">
+          <p v-if="!messages.length" class="chat__empty">Aguardando historico do chat...</p>
+
           <article
             v-for="message in messages"
             :key="message.id"
@@ -117,11 +275,12 @@ function sendMessage() {
               v-model="draft"
               rows="3"
               placeholder="Escreva uma mensagem"
+              :disabled="!isConnected"
             />
           </label>
 
           <div class="chat__actions">
-            <button type="submit">Enviar</button>
+            <button type="submit" :disabled="!isConnected || !draft.trim()">Enviar</button>
           </div>
         </form>
       </section>
@@ -136,7 +295,7 @@ function sendMessage() {
 }
 
 .chat-shell {
-  min-height: calc(100vh - 40px);
+  height: calc(100vh - 40px);
   width: min(1320px, 100%);
   margin: 0 auto;
   display: grid;
@@ -187,12 +346,31 @@ function sendMessage() {
   background: rgba(255, 250, 251, 0.08);
 }
 
-.chat__identity strong {
+.chat__identity-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.chat__identity strong,
+.chat__identity span {
   overflow-wrap: anywhere;
 }
 
-.chat__identity span {
-  overflow-wrap: anywhere;
+.chat__logout {
+  padding: 12px 16px;
+  border-radius: 999px;
+  font-weight: 800;
+  color: var(--color-paper-strong);
+  background: rgba(255, 250, 251, 0.16);
+}
+
+.chat__error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: #fff4ea;
+  background: rgba(104, 21, 12, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(255, 250, 251, 0.08);
 }
 
 .chat__stats article {
@@ -239,18 +417,25 @@ function sendMessage() {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 18px;
-  min-height: 72vh;
+  height: 100%;
   padding: 20px;
   border-radius: var(--radius-xl);
   background: rgba(246, 241, 240, 0.96);
   box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 
 .chat__messages {
+  min-height: 0;
   display: grid;
   align-content: start;
   gap: 14px;
   overflow: auto;
+}
+
+.chat__empty {
+  margin: auto;
+  color: var(--color-ink-soft);
 }
 
 .message {
@@ -322,6 +507,12 @@ function sendMessage() {
   color: rgba(85, 93, 90, 0.72);
 }
 
+.chat__field textarea:disabled,
+.chat__composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
 .chat__composer button {
   padding: 14px 18px;
   border-radius: 999px;
@@ -345,7 +536,7 @@ function sendMessage() {
   }
 
   .chat__sidebar {
-    min-height: calc(100vh - 40px);
+    height: 100%;
     align-content: start;
   }
 }
@@ -356,7 +547,7 @@ function sendMessage() {
   }
 
   .chat-shell {
-    min-height: calc(100vh - 28px);
+    height: calc(100vh - 28px);
   }
 
   .chat__identity {

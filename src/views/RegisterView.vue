@@ -1,22 +1,18 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { login } from '../composables/useAuth'
+import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { register } from '../composables/useAuth'
 
-const route = useRoute()
 const router = useRouter()
 const isSubmitting = ref(false)
 const errorMessage = ref('')
-const registrationMessage = computed(() =>
-  route.query.registered === '1' ? 'Conta criada. Entre com suas credenciais.' : '',
-)
 
 const form = reactive({
-  email: typeof route.query.email === 'string' ? route.query.email : '',
+  email: '',
   password: '',
 })
 
-async function submitLogin() {
+async function submitRegister() {
   if (isSubmitting.value) {
     return
   }
@@ -25,16 +21,25 @@ async function submitLogin() {
   errorMessage.value = ''
 
   try {
-    await login({
+    const result = await register({
       email: form.email.trim(),
       password: form.password,
     })
 
-    const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : null
+    if (result.authenticated) {
+      router.push({ name: 'chat' })
+      return
+    }
 
-    router.push(redirectPath || { name: 'chat' })
+    router.push({
+      name: 'login',
+      query: {
+        registered: '1',
+        email: form.email.trim(),
+      },
+    })
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Falha ao autenticar.'
+    errorMessage.value = error instanceof Error ? error.message : 'Falha ao criar conta.'
   } finally {
     isSubmitting.value = false
   }
@@ -42,29 +47,28 @@ async function submitLogin() {
 </script>
 
 <template>
-  <main class="login-page">
-    <section class="login-layout">
-      <div class="login-hero">
+  <main class="register-page">
+    <section class="register-layout">
+      <div class="register-hero">
         <p class="section-tag">Agenda de Contatos</p>
-        <h1>Converse com foco.</h1>
-        <p class="login-hero__copy">
-          Um ponto de entrada direto para a sua sala principal.
+        <h1>Crie sua conta.</h1>
+        <p class="register-hero__copy">
+          Cadastre e entre no canal principal com email e senha.
         </p>
 
-        <div class="login-hero__panel">
-          <span>Ambiente</span>
-          <strong>Privado e contínuo</strong>
+        <div class="register-hero__panel">
+          <span>Cadastro</span>
+          <strong>Integrado ao backend</strong>
         </div>
       </div>
 
-      <form class="login-card" @submit.prevent="submitLogin">
-        <div class="login-card__header">
-          <h2>Entrar</h2>
-          <p>Acesse sua conta para abrir a conversa.</p>
+      <form class="register-card" @submit.prevent="submitRegister">
+        <div class="register-card__header">
+          <h2>Criar conta</h2>
+          <p>Preencha os dados para registrar um novo acesso.</p>
         </div>
 
-        <p v-if="registrationMessage" class="login-card__success">{{ registrationMessage }}</p>
-        <p v-if="errorMessage" class="login-card__error">{{ errorMessage }}</p>
+        <p v-if="errorMessage" class="register-card__error">{{ errorMessage }}</p>
 
         <label>
           <span>E-mail</span>
@@ -82,18 +86,18 @@ async function submitLogin() {
           <input
             v-model="form.password"
             type="password"
-            placeholder="Digite sua senha"
-            autocomplete="current-password"
+            placeholder="Crie uma senha"
+            autocomplete="new-password"
             required
           />
         </label>
 
         <button type="submit" :disabled="isSubmitting">
-          {{ isSubmitting ? 'Entrando...' : 'Acessar chat' }}
+          {{ isSubmitting ? 'Criando conta...' : 'Criar conta' }}
         </button>
 
-        <RouterLink class="login-card__link" :to="{ name: 'register' }">
-          Criar conta
+        <RouterLink class="register-card__link" :to="{ name: 'login' }">
+          Voltar para o login
         </RouterLink>
       </form>
     </section>
@@ -101,30 +105,30 @@ async function submitLogin() {
 </template>
 
 <style scoped>
-.login-page {
+.register-page {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
 }
 
-.login-layout {
+.register-layout {
   width: min(1080px, 100%);
   display: grid;
   gap: 18px;
 }
 
-.login-hero,
-.login-card {
+.register-hero,
+.register-card {
   border-radius: var(--radius-xl);
 }
 
-.login-hero {
+.register-hero {
   padding: 32px;
   color: var(--color-paper-strong);
   background:
-    radial-gradient(circle at top right, rgba(187, 75, 23, 0.22), transparent 24%),
-    linear-gradient(155deg, var(--color-primary), var(--color-support));
+    radial-gradient(circle at top right, rgba(85, 93, 90, 0.18), transparent 24%),
+    linear-gradient(155deg, #8f4a2f, var(--color-primary));
   box-shadow: var(--shadow-soft);
 }
 
@@ -137,21 +141,21 @@ async function submitLogin() {
   color: rgba(255, 250, 251, 0.72);
 }
 
-.login-hero h1 {
+.register-hero h1 {
   margin: 0;
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   font-size: clamp(3rem, 6vw, 5.4rem);
   line-height: 0.92;
 }
 
-.login-hero__copy {
-  max-width: 24rem;
+.register-hero__copy {
+  max-width: 26rem;
   margin: 16px 0 0;
   line-height: 1.6;
   color: rgba(255, 250, 251, 0.86);
 }
 
-.login-hero__panel {
+.register-hero__panel {
   display: inline-grid;
   gap: 6px;
   margin-top: 28px;
@@ -160,7 +164,7 @@ async function submitLogin() {
   background: rgba(255, 250, 251, 0.1);
 }
 
-.login-hero__panel span {
+.register-hero__panel span {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -168,7 +172,7 @@ async function submitLogin() {
   color: rgba(255, 250, 251, 0.68);
 }
 
-.login-card {
+.register-card {
   display: grid;
   gap: 16px;
   padding: 28px;
@@ -176,18 +180,18 @@ async function submitLogin() {
   box-shadow: var(--shadow-card);
 }
 
-.login-card__header h2 {
+.register-card__header h2 {
   margin: 0;
   color: var(--color-primary);
   font-size: 1.6rem;
 }
 
-.login-card__header p {
+.register-card__header p {
   margin: 8px 0 0;
   color: var(--color-ink-soft);
 }
 
-.login-card__error {
+.register-card__error {
   margin: 0;
   padding: 12px 14px;
   border-radius: 14px;
@@ -196,27 +200,18 @@ async function submitLogin() {
   box-shadow: inset 0 0 0 1px rgba(139, 46, 35, 0.14);
 }
 
-.login-card__success {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 14px;
-  color: #265340;
-  background: rgba(64, 139, 91, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(38, 83, 64, 0.14);
-}
-
-.login-card label {
+.register-card label {
   display: grid;
   gap: 8px;
 }
 
-.login-card span {
+.register-card span {
   font-size: 0.92rem;
   font-weight: 700;
   color: var(--color-primary);
 }
 
-.login-card input {
+.register-card input {
   width: 100%;
   padding: 14px 16px;
   border-radius: 14px;
@@ -225,11 +220,11 @@ async function submitLogin() {
   box-shadow: inset 0 0 0 1px rgba(85, 93, 90, 0.16);
 }
 
-.login-card input::placeholder {
+.register-card input::placeholder {
   color: rgba(85, 93, 90, 0.72);
 }
 
-.login-card button {
+.register-card button {
   margin-top: 6px;
   padding: 14px 18px;
   border-radius: 999px;
@@ -239,31 +234,31 @@ async function submitLogin() {
   box-shadow: 0 16px 28px rgba(187, 75, 23, 0.28);
 }
 
-.login-card button:disabled {
+.register-card button:disabled {
   cursor: wait;
   opacity: 0.72;
 }
 
-.login-card__link {
+.register-card__link {
   justify-self: center;
   font-weight: 700;
   color: var(--color-primary);
 }
 
 @media (min-width: 860px) {
-  .login-layout {
+  .register-layout {
     grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
     align-items: center;
   }
 
-  .login-hero {
+  .register-hero {
     min-height: 640px;
     display: flex;
     flex-direction: column;
     justify-content: center;
   }
 
-  .login-card {
+  .register-card {
     min-height: 520px;
     align-content: center;
   }
