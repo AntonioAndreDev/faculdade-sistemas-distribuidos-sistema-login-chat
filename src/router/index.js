@@ -12,9 +12,17 @@ const router = createRouter({
     },
     {
       path: '/login',
+      alias: '/auth/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
       meta: { title: 'Login', guestOnly: true },
+    },
+    {
+      path: '/register',
+      alias: '/auth/register',
+      name: 'register',
+      component: () => import('../views/RegisterView.vue'),
+      meta: { title: 'Criar conta', guestOnly: true },
     },
     {
       path: '/chat',
