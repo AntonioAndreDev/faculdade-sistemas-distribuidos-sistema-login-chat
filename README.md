@@ -1,5 +1,39 @@
-# Vue 3 + Vite
+# Como executar o projeto
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+## Requisitos
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+- Node.js instalado
+- npm instalado
+
+## Instalação
+
+```bash
+npm install
+```
+
+## Configuração do backend
+
+Por padrão, o frontend tenta se conectar ao backend em `http://localhost:3000`.
+
+Se precisar usar outra URL, crie um arquivo `.env` na raiz do projeto com:
+
+```env
+VITE_BACKEND_URL=http://localhost:3000
+```
+
+## Executar em desenvolvimento
+
+```bash
+npm run dev
+```
+
+Depois, abra no navegador a URL exibida no terminal, normalmente:
+
+```text
+http://localhost:5173
+```
+
+## Para criar mais de uma conta
+
+Crie uma conta normalmente pela interface na aba pública do navegador e outra pela aba privada.
+Dessa forma, é possível realizar a simulação de dois usuários diferentes convversando ao mesmo tempo.
